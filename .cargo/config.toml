@@ -1,5 +1,1 @@
-[source.crates-io]
-replace-with = "vendored-sources"
-
-[source.vendored-sources]
-directory = "vendor"
+# Empty config file - vendor mode disabled for GitHub Actions compatibility
