@@ -1,0 +1,42 @@
+# Rust 构建产物
+/target
+**/*.rs.bk
+
+# Windows
+*.exe
+*.pdb
+*.dll
+*.lib
+
+# macOS
+.DS_Store
+
+# Linux
+*.so
+*.a
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 离线 vendor 目录(体积大,不纳入版本控制)
+/vendor/
+
+# 索引缓存
+/cache/
+
+# 环境变量
+.env
+.envrc
+
+# Claude / Agent (local config, not committed)
+.claude/
+.worktrees/
+.mcp.json
+
+# 日志
+*.log

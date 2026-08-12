@@ -1,0 +1,21 @@
+# Sample configuration for mcpdoc-rust
+# Place this file at ~/.config/mcpdoc-rust/config.yaml or use --yaml /path/to/config.yaml
+#
+# Each entry:
+#   name:        Display name (required, used in search results and instructions)
+#   llms_txt:    URL (https://...) or local file path to the llms.txt file
+#   description: Short description shown in server instructions (optional but recommended)
+
+- name: LangGraph
+  llms_txt: https://langchain-ai.github.io/langgraph/llms.txt
+  description: LangGraph Python documentation
+
+# Example: local file
+# - name: ClaudeCode
+#   llms_txt: /path/to/claude-code-local-llms.txt
+#   description: Claude Code documentation
+
+# Example: local file with relative paths inside
+# - name: uv
+#   llms_txt: /path/to/uv-docs-local-llms.txt
+#   description: uv Python package manager docs

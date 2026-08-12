@@ -1,0 +1,7 @@
+[
+  {
+    "name": "LangGraph",
+    "llms_txt": "https://langchain-ai.github.io/langgraph/llms.txt",
+    "description": "LangGraph Python documentation"
+  }
+]
