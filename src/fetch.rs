@@ -59,10 +59,14 @@ pub async fn fetch_document(
             ));
         }
 
-        return tokio::fs::read_to_string(&abs_path)
+        let content = tokio::fs::read_to_string(&abs_path)
             .await
-            .map(|content| html_to_markdown(&content))
-            .map_err(|e| format!("Error reading local file: {e}"));
+            .map_err(|e| format!("Error reading local file: {e}"))?;
+        // .md 文件已是 Markdown,直接返回;其他文件(如 .html)走 HTML→Markdown 转换
+        if abs_path.extension().map(|e| e == "md").unwrap_or(false) {
+            return Ok(content);
+        }
+        return Ok(html_to_markdown(&content));
     }
 
     // HTTP/HTTPS
@@ -134,8 +138,10 @@ fn url_join(base: &str, relative: &str) -> String {
 
 /// 读取本地 llms.txt 文件内容(不做白名单检查,用于索引构建)。
 pub async fn read_local_file(path: &Path) -> Result<String, String> {
-    tokio::fs::read_to_string(path)
-        .await
+    // 用同步 std::fs 读取,避免 tokio::fs::asyncify 在 Windows 长路径前缀上
+    // 返回 "background task failed"(spawn_blocking 的 JoinError)。索引构建是
+    // 一次性操作,短暂阻塞 runtime 可接受。
+    std::fs::read_to_string(path)
         .map_err(|e| format!("Error reading local file {}: {e}", path.display()))
 }
 

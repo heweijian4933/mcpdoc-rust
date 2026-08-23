@@ -67,6 +67,12 @@ pub fn normalize_path(path: &str) -> PathBuf {
         PathBuf::from(path)
     }
     .canonicalize()
+    .map(|c| {
+        // Windows canonicalize 会加 `\\?\` 长路径前缀,tokio::fs / std::fs 在某些
+        // 路径上读取失败("background task failed"),去掉前缀恢复为普通绝对路径。
+        let s = c.to_string_lossy().into_owned();
+        PathBuf::from(s.strip_prefix(r"\\?\").unwrap_or(&s))
+    })
     .unwrap_or_else(|_| PathBuf::from(path))
 }
 
