@@ -12,7 +12,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use regex::Regex;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tantivy::collector::TopDocs;
@@ -23,7 +22,7 @@ use tantivy::{Index, IndexReader, TantivyDocument};
 use tracing::{info, warn};
 
 use crate::config::DocSource;
-use crate::domain::{is_http_or_https, normalize_path};
+use crate::domain::{is_http_or_https, normalize_path, parse_llms_txt};
 use crate::fetch::{fetch_remote, read_local_file};
 
 pub use schema::IndexSchema;
@@ -41,53 +40,11 @@ pub struct SearchResult {
     pub score: f32,
 }
 
-/// llms.txt 中的文档条目(标题 + URL + 描述)
-struct DocEntry {
-    title: String,
-    url: String,
-    description: String,
-}
-
 /// 搜索索引(懒加载,持久化)
 pub struct SearchIndex {
     index: Index,
     reader: IndexReader,
     schema: Arc<IndexSchema>,
-}
-
-/// llms.txt markdown 链接正则:`- [title](url): description`
-static MD_LINK: once_cell::sync::Lazy<Regex> =
-    once_cell::sync::Lazy::new(|| Regex::new(r"-\s*\[([^\]]+)\]\(([^)]+)\)(?::\s*(.*))?").unwrap());
-
-/// 解析 llms.txt 内容,提取文档条目(标题 + URL + 描述)。
-fn parse_llms_txt(content: &str, source_name: &str) -> Vec<DocEntry> {
-    let mut entries = Vec::new();
-    for line in content.lines() {
-        let line = line.trim();
-        if let Some(caps) = MD_LINK.captures(line) {
-            let title = caps
-                .get(1)
-                .map(|m| m.as_str().to_string())
-                .unwrap_or_default();
-            let url = caps
-                .get(2)
-                .map(|m| m.as_str().to_string())
-                .unwrap_or_default();
-            let description = caps
-                .get(3)
-                .map(|m| m.as_str().trim().to_string())
-                .unwrap_or_default();
-            entries.push(DocEntry {
-                title,
-                url,
-                description,
-            });
-        }
-    }
-    if entries.is_empty() {
-        warn!("no document entries found in source '{}'", source_name);
-    }
-    entries
 }
 
 /// 计算文档源指纹(用于缓存键,FNV-1a)
@@ -528,31 +485,6 @@ impl SearchIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_parse_llms_txt_with_description() {
-        let content = r#"
-# Title
-- [Hooks](https://example.com/hooks): Learn about hooks
-- [Memory](https://example.com/memory): Manage memory
-"#;
-        let entries = parse_llms_txt(content, "test");
-        assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].title, "Hooks");
-        assert_eq!(entries[0].url, "https://example.com/hooks");
-        assert_eq!(entries[0].description, "Learn about hooks");
-        assert_eq!(entries[1].title, "Memory");
-        assert_eq!(entries[1].description, "Manage memory");
-    }
-
-    #[test]
-    fn test_parse_llms_txt_without_description() {
-        let content = "- [Title](https://example.com/page)";
-        let entries = parse_llms_txt(content, "test");
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].title, "Title");
-        assert!(entries[0].description.is_empty());
-    }
 
     #[test]
     fn test_compute_fingerprint_stable() {
