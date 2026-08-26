@@ -1,4 +1,4 @@
-//! MCP 服务器核心:实现 ServerHandler trait,注册 list_doc_sources / fetch_docs / search_docs 工具。
+//! MCP 服务器核心:实现 ServerHandler trait,注册 list_doc_sources / fetch_docs / search_docs / list_pages 工具。
 //! 对齐 Python `mcpdoc/main.py` 的 `create_server`。
 
 use std::collections::HashSet;
@@ -206,17 +206,18 @@ impl McpDocServer {
         instructions.push(
             "1. PREFER search_docs first — it searches across ALL sources at once (BM25 ranking, title weighted 2x). This is the fastest way to find relevant pages.".to_string(),
         );
+        instructions.push("2. Use list_doc_sources to see all configured sources.".to_string());
         instructions.push(
-            "2. Use list_doc_sources only if you need to see all sources or find a specific llms.txt file.".to_string(),
+            "3. Use list_pages to list all pages within a specific source (fuzzy source name match). Drill down: list_doc_sources -> list_pages -> fetch_docs.".to_string(),
         );
         instructions.push(
-            "3. Use fetch_docs to read the full content of a page found via search_docs or listed in an llms.txt file.".to_string(),
+            "4. Use fetch_docs to read the full content of a page found via search_docs or list_pages.".to_string(),
         );
         instructions.push(String::new());
 
         // === 提示 ===
         instructions.push(
-            "Tip: Start with search_docs using keywords from the user's question. If results are relevant, fetch_docs to get full content. Avoid fetching entire llms.txt files unless the user asks for an overview.".to_string(),
+            "Tip: Start with search_docs using keywords from the user's question. If results are relevant, fetch_docs to get full content. Use list_pages when you need to browse a specific source's table of contents.".to_string(),
         );
 
         instructions.join("\n")
