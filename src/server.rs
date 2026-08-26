@@ -491,3 +491,110 @@ impl ServerHandler for McpDocServer {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 构造测试用 server(3 个源:uv + React + ReactFlow,均为远程)
+    fn make_test_server() -> McpDocServer {
+        let doc_sources = vec![
+            DocSource {
+                name: Some("uv".to_string()),
+                llms_txt: "https://docs.astral.sh/llms.txt".to_string(),
+                description: None,
+            },
+            DocSource {
+                name: Some("React".to_string()),
+                llms_txt: "https://react.dev/llms.txt".to_string(),
+                description: None,
+            },
+            DocSource {
+                name: Some("ReactFlow".to_string()),
+                llms_txt: "https://reactflow.dev/llms.txt".to_string(),
+                description: None,
+            },
+        ];
+        let config = ServerConfig {
+            follow_redirects: false,
+            timeout: Duration::from_secs(10),
+            enable_index: true,
+        };
+        let http_client = Client::new();
+        McpDocServer::new(doc_sources, config, http_client, AllowedDomains::All, None)
+            .expect("failed to build test server")
+    }
+
+    #[test]
+    fn test_fuzzy_match_single_source() {
+        let server = make_test_server();
+        let query = "uv";
+        let query_lower = query.to_lowercase();
+        let matched: Vec<&DocSource> = server
+            .doc_sources
+            .iter()
+            .filter(|s| {
+                let name = get_source_name(&s.llms_txt, s.name.as_deref());
+                name.to_lowercase().contains(&query_lower)
+            })
+            .collect();
+        assert_eq!(matched.len(), 1);
+        assert_eq!(matched[0].name.as_deref(), Some("uv"));
+    }
+
+    #[test]
+    fn test_fuzzy_match_case_insensitive() {
+        let server = make_test_server();
+        let query = "REACT";
+        let query_lower = query.to_lowercase();
+        let matched: Vec<&DocSource> = server
+            .doc_sources
+            .iter()
+            .filter(|s| {
+                let name = get_source_name(&s.llms_txt, s.name.as_deref());
+                name.to_lowercase().contains(&query_lower)
+            })
+            .collect();
+        // "REACT" (uppercase) matches both "React" and "ReactFlow" via
+        // case-insensitive substring match — verifies case-insensitivity.
+        assert_eq!(matched.len(), 2);
+        let names: Vec<&str> = matched.iter().filter_map(|s| s.name.as_deref()).collect();
+        assert!(names.contains(&"React"));
+        assert!(names.contains(&"ReactFlow"));
+    }
+
+    #[test]
+    fn test_fuzzy_match_zero_hits() {
+        let server = make_test_server();
+        let query = "nonexistent";
+        let query_lower = query.to_lowercase();
+        let matched: Vec<&DocSource> = server
+            .doc_sources
+            .iter()
+            .filter(|s| {
+                let name = get_source_name(&s.llms_txt, s.name.as_deref());
+                name.to_lowercase().contains(&query_lower)
+            })
+            .collect();
+        assert!(matched.is_empty());
+    }
+
+    #[test]
+    fn test_fuzzy_match_multi_source_merge() {
+        let server = make_test_server();
+        let query = "react";
+        let query_lower = query.to_lowercase();
+        let matched: Vec<&DocSource> = server
+            .doc_sources
+            .iter()
+            .filter(|s| {
+                let name = get_source_name(&s.llms_txt, s.name.as_deref());
+                name.to_lowercase().contains(&query_lower)
+            })
+            .collect();
+        assert_eq!(matched.len(), 2);
+        let names: Vec<&str> = matched.iter().filter_map(|s| s.name.as_deref()).collect();
+        assert!(names.contains(&"React"));
+        assert!(names.contains(&"ReactFlow"));
+    }
+}
