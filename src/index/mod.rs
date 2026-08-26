@@ -23,7 +23,6 @@ use tracing::{info, warn};
 
 use crate::config::DocSource;
 use crate::domain::{is_http_or_https, normalize_path, parse_llms_txt};
-use crate::fetch::{fetch_remote, read_local_file};
 
 pub use schema::IndexSchema;
 
@@ -326,12 +325,7 @@ impl SearchIndex {
                 crate::domain::get_source_name(&source.llms_txt, source.name.as_deref());
             info!("indexing source: {}", source_name);
 
-            let content = if is_http_or_https(&source.llms_txt) {
-                fetch_remote(&source.llms_txt, http_client, timeout).await
-            } else {
-                let path = normalize_path(&source.llms_txt);
-                read_local_file(&path).await
-            };
+            let content = crate::fetch::fetch_llms_txt_content(source, http_client, timeout).await;
 
             let content = match content {
                 Ok(c) => c,

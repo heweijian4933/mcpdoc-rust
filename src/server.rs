@@ -79,6 +79,14 @@ pub struct SearchDocsParams {
     pub limit: Option<usize>,
 }
 
+/// list_pages 工具参数
+#[derive(Deserialize, JsonSchema)]
+pub struct ListPagesParams {
+    /// Source name to list pages from. Fuzzy (case-insensitive substring) match.
+    /// Get exact names from list_doc_sources. Matches multiple sources if ambiguous.
+    pub source: String,
+}
+
 impl McpDocServer {
     /// 创建服务器实例,对齐 Python `create_server`。
     pub fn new(
@@ -340,6 +348,131 @@ impl McpDocServer {
                 Content::text(format!("Error searching: {e}")).into_contents(),
             )),
         }
+    }
+
+    /// list_pages 工具:列出指定源 llms.txt 中的所有页面条目。
+    #[tool(
+        description = "List all page entries (title + URL + description) from a documentation source's llms.txt file.\n\nUse this when:\n- You want to see what pages a specific source contains before fetching\n- The user asks 'what pages does X have' or 'list docs for X'\n- You need to find the exact URL of a page within a source\n- search_docs didn't surface the page you need and you want to browse the source\n\nForms a drill-down with list_doc_sources (sources) -> list_pages (pages) -> fetch_docs (full content).\n\nArgs:\n    source: Source name (fuzzy, case-insensitive substring match). Get names from list_doc_sources. Matches multiple sources if ambiguous.\n\nReturns: Page entries grouped by matched source, with title, URL, and description."
+    )]
+    async fn list_pages(
+        &self,
+        params: rmcp::handler::server::tool::Parameters<ListPagesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let query = params.0.source.trim();
+        if query.is_empty() {
+            return Ok(CallToolResult::success(
+                Content::text(
+                    "Error: source parameter is required. Call list_doc_sources to see available sources.",
+                )
+                .into_contents(),
+            ));
+        }
+
+        // 模糊匹配源名(大小写不敏感的子串包含)
+        let query_lower = query.to_lowercase();
+        let matched: Vec<&DocSource> = self
+            .doc_sources
+            .iter()
+            .filter(|s| {
+                let name = get_source_name(&s.llms_txt, s.name.as_deref());
+                name.to_lowercase().contains(&query_lower)
+            })
+            .collect();
+
+        if matched.is_empty() {
+            // 0 命中:返回所有可用源名,让 LLM 收敛重调
+            let available: Vec<String> = self
+                .doc_sources
+                .iter()
+                .map(|s| get_source_name(&s.llms_txt, s.name.as_deref()))
+                .collect();
+            return Ok(CallToolResult::success(
+                Content::text(format!(
+                    "Error: no source matched '{}'. Available sources: {}",
+                    query,
+                    available.join(", ")
+                ))
+                .into_contents(),
+            ));
+        }
+
+        // 对每个命中源,fetch 其 llms.txt 并解析
+        let mut sections: Vec<String> = Vec::new();
+        let mut total_pages = 0usize;
+        let mut had_success = false;
+
+        for source in &matched {
+            let source_name = get_source_name(&source.llms_txt, source.name.as_deref());
+            let url_or_path = if is_http_or_https(&source.llms_txt) {
+                source.llms_txt.clone()
+            } else {
+                format!("Path: {}", normalize_path(&source.llms_txt).display())
+            };
+
+            let content = crate::fetch::fetch_llms_txt_content(
+                source,
+                &self.http_client,
+                self.config.timeout,
+            )
+            .await;
+
+            let entries = match content {
+                Ok(c) => {
+                    had_success = true;
+                    crate::domain::parse_llms_txt(&c, &source_name)
+                }
+                Err(e) => {
+                    sections.push(format!(
+                        "## {source_name} ({url_or_path})\nError fetching llms.txt: {e}\n"
+                    ));
+                    continue;
+                }
+            };
+
+            if entries.is_empty() {
+                sections.push(format!(
+                    "## {source_name} ({url_or_path})\nno pages found\n"
+                ));
+                continue;
+            }
+
+            total_pages += entries.len();
+            let mut section = format!("## {source_name} ({url_or_path})\n");
+            for (i, entry) in entries.iter().enumerate() {
+                if entry.description.is_empty() {
+                    section.push_str(&format!("{}. {} | {}\n", i + 1, entry.title, entry.url));
+                } else {
+                    section.push_str(&format!(
+                        "{}. {} | {}\n   {}\n",
+                        i + 1,
+                        entry.title,
+                        entry.url,
+                        entry.description
+                    ));
+                }
+            }
+            sections.push(section);
+        }
+
+        if !had_success {
+            return Ok(CallToolResult::success(
+                Content::text(format!(
+                    "Error: failed to fetch llms.txt from all {} matched source(s).",
+                    matched.len()
+                ))
+                .into_contents(),
+            ));
+        }
+
+        let mut output = format!(
+            "Found {} source(s) matching '{}', {} page(s) total:\n\n",
+            matched.len(),
+            query,
+            total_pages
+        );
+        output.push_str(&sections.join("\n"));
+
+        Ok(CallToolResult::success(output.into_contents()))
     }
 }
 

@@ -163,6 +163,21 @@ pub async fn fetch_remote(
         .map_err(|e| format!("HTTP error reading body from {url}: {e}"))
 }
 
+/// 获取 llms.txt 内容(远程或本地),用于索引构建和 list_pages 工具。
+/// 不做白名单检查——只读取已配置的 doc_sources(启动时已校验)。
+pub async fn fetch_llms_txt_content(
+    source: &crate::config::DocSource,
+    http_client: &Client,
+    timeout: Duration,
+) -> Result<String, String> {
+    if crate::domain::is_http_or_https(&source.llms_txt) {
+        fetch_remote(&source.llms_txt, http_client, timeout).await
+    } else {
+        let path = crate::domain::normalize_path(&source.llms_txt);
+        read_local_file(&path).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
