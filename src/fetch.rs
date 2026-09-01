@@ -62,8 +62,12 @@ pub async fn fetch_document(
         let content = tokio::fs::read_to_string(&abs_path)
             .await
             .map_err(|e| format!("Error reading local file: {e}"))?;
-        // .md 文件已是 Markdown,直接返回;其他文件(如 .html)走 HTML→Markdown 转换
+        // .md 文件:检测内容是否实为 HTML(部分文档源存的是网页快照),
+        // 若是则走 HTML→Markdown 转换,否则直接返回 Markdown。
         if abs_path.extension().map(|e| e == "md").unwrap_or(false) {
+            if looks_like_html(&content) {
+                return Ok(html_to_markdown(&content));
+            }
             return Ok(content);
         }
         return Ok(html_to_markdown(&content));
@@ -178,6 +182,13 @@ pub async fn fetch_llms_txt_content(
     }
 }
 
+/// 判断内容是否为 HTML(而非纯 Markdown)。
+/// 部分文档源的 .md 文件实际是网页快照(HTML),需要走 HTML→Markdown 转换。
+pub fn looks_like_html(content: &str) -> bool {
+    let trimmed = content.trim_start();
+    trimmed.starts_with("<!DOCTYPE") || trimmed.starts_with("<html")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,5 +207,34 @@ mod tests {
             url_join("https://example.com/a/b", "/x"),
             "https://example.com/x"
         );
+    }
+
+    #[test]
+    fn test_looks_like_html_doctype() {
+        assert!(looks_like_html(
+            "<!DOCTYPE html><html><body>hi</body></html>"
+        ));
+    }
+
+    #[test]
+    fn test_looks_like_html_tag() {
+        assert!(looks_like_html(
+            "<html lang=\"en\"><body>content</body></html>"
+        ));
+    }
+
+    #[test]
+    fn test_looks_like_html_with_leading_whitespace() {
+        assert!(looks_like_html("  \n  <!DOCTYPE html>..."));
+    }
+
+    #[test]
+    fn test_not_html_markdown() {
+        assert!(!looks_like_html("# Title\n\nSome markdown content."));
+    }
+
+    #[test]
+    fn test_not_html_plain_text() {
+        assert!(!looks_like_html("Just plain text, no tags."));
     }
 }
