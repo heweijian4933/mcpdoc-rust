@@ -201,23 +201,41 @@ impl McpDocServer {
         }
         instructions.push(String::new());
 
-        // === 推荐策略(search 优先)===
+        // === 推荐策略 ===
         instructions.push("How to use:".to_string());
         instructions.push(
             "1. PREFER search_docs first — it searches across ALL sources at once (BM25 ranking, title weighted 2x). This is the fastest way to find relevant pages.".to_string(),
         );
-        instructions.push("2. Use list_doc_sources to see all configured sources.".to_string());
         instructions.push(
-            "3. Use list_pages to list all pages within a specific source (fuzzy source name match). Drill down: list_doc_sources -> list_pages -> fetch_docs.".to_string(),
+            "2. If search_docs returns no results or irrelevant results, use list_pages with the source name to browse that source's table of contents (title + URL + description for every page). This helps when the user's keywords don't appear in page titles but the page exists in the source.".to_string(),
         );
         instructions.push(
-            "4. Use fetch_docs to read the full content of a page found via search_docs or list_pages.".to_string(),
+            "3. Use list_doc_sources to see all configured sources when you don't know which source to search.".to_string(),
+        );
+        instructions.push(
+            "4. Use fetch_docs to read the full content of a page found via search_docs or list_pages. ALWAYS use list_pages first to get the exact page URL/path, rather than guessing URLs or fetching entire llms.txt files.".to_string(),
+        );
+        instructions.push(String::new());
+
+        // === 触发条件 ===
+        instructions.push("When to use each tool:".to_string());
+        instructions.push(
+            "- search_docs: User asks a question with specific keywords. Best for 'how do I X' or 'what is Y' queries.".to_string(),
+        );
+        instructions.push(
+            "- list_pages: User mentions a specific tool/framework by name (e.g., 'in uv, how to...'). Use it to find the exact page URL within that source before fetching. Also use when search_docs didn't find what you need.".to_string(),
+        );
+        instructions.push(
+            "- list_doc_sources: User asks 'what documentation is available' or you don't know which source to search.".to_string(),
+        );
+        instructions.push(
+            "- fetch_docs: You have a specific page URL (from search_docs or list_pages) and need its full content.".to_string(),
         );
         instructions.push(String::new());
 
         // === 提示 ===
         instructions.push(
-            "Tip: Start with search_docs using keywords from the user's question. If results are relevant, fetch_docs to get full content. Use list_pages when you need to browse a specific source's table of contents.".to_string(),
+            "Tip: The most common workflow is: search_docs (find relevant pages) -> fetch_docs (read the page). If search_docs doesn't find it, try: list_pages (browse the source's TOC) -> fetch_docs. Never guess page URLs — always get them from search_docs or list_pages first.".to_string(),
         );
 
         instructions.join("\n")
