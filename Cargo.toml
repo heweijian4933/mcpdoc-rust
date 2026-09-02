@@ -27,7 +27,8 @@ tokio = { version = "1.40", features = ["full", "fs", "io-util"] }
 
 # ========== MCP 协议 ==========
 # server feature 含 transport-async-rw(stdio),transport-sse-server 引入 axum(SSE)
-rmcp = { version = "0.2", features = ["server", "transport-sse-server"] }
+# client + transport-sse-client + reqwest: bridge 进程作为 SSE client 连接本地 SSE server
+rmcp = { version = "0.2", features = ["server", "transport-sse-server", "client", "transport-sse-client", "reqwest"] }
 
 # ========== HTTP 客户端 ==========
 reqwest = { version = "0.12", features = ["rustls-tls", "json", "stream"] }
