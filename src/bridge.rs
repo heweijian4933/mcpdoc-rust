@@ -14,27 +14,23 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 /// 默认 SSE server 端口
 pub const DEFAULT_SSE_PORT: u16 = 9000;
 
-/// 检测 SSE server 是否在运行(HTTP GET /sse,超时 1 秒)
+/// 检测 SSE server 是否在运行(TCP 连接端口,超时 1 秒)
+///
+/// 用 TCP 连接而非 HTTP GET,因为 SSE 的流式响应不会关闭,
+/// HTTP 客户端可能卡在等待 body。TCP 连接成功即说明 server 在跑。
 pub async fn check_sse_server(port: u16) -> bool {
-    let url = format!("http://127.0.0.1:{port}/sse");
-    let client = match reqwest::Client::builder()
-        .timeout(Duration::from_secs(1))
-        .build()
-    {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    match client.get(&url).send().await {
-        Ok(resp) => resp.status().is_success(),
-        Err(_) => false,
-    }
+    let addr = format!("127.0.0.1:{port}");
+    tokio::time::timeout(Duration::from_secs(1), tokio::net::TcpStream::connect(&addr))
+        .await
+        .map(|r| r.is_ok())
+        .unwrap_or(false)
 }
 
 /// Spawn 一个 detached SSE server 子进程。
 ///
 /// 子进程用相同的 exe + `--transport sse --port <port>` 启动,
 /// 继承原始的 --urls 参数。stdin/stdout/stderr 设为 Null(detached)。
-pub fn spawn_sse_server(port: u16, original_args: &[String]) -> anyhow::Result<()> {
+pub fn spawn_sse_server(port: u16, original_urls: &[String]) -> anyhow::Result<()> {
     let current_exe = std::env::current_exe()?;
     let mut cmd = std::process::Command::new(&current_exe);
     cmd.arg("--transport")
@@ -42,27 +38,18 @@ pub fn spawn_sse_server(port: u16, original_args: &[String]) -> anyhow::Result<(
         .arg("--port")
         .arg(port.to_string());
 
-    // 传递原始参数(过滤掉 --transport 和 --port,避免重复)
-    let mut skip = false;
-    for arg in original_args {
-        if skip {
-            skip = false;
-            continue;
-        }
-        match arg.as_str() {
-            "--transport" | "--port" => {
-                skip = true;
-                continue;
-            }
-            _ => {
-                cmd.arg(arg);
-            }
+    // original_urls 是 --urls 后面的值列表(clap 解析后的 Vec<String>)
+    // 子进程需要 --urls url1 url2 ...
+    if !original_urls.is_empty() {
+        cmd.arg("--urls");
+        for url in original_urls {
+            cmd.arg(url);
         }
     }
 
     cmd.stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
+        .stderr(std::process::Stdio::inherit());
 
     // Windows: CREATE_NO_WINDOW + DETACHED_PROCESS
     #[cfg(target_os = "windows")]

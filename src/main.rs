@@ -122,8 +122,8 @@ async fn try_bridge(port: u16, original_urls: &[String]) -> anyhow::Result<()> {
         tracing::info!("bridge: SSE server not running, spawning...");
         bridge::spawn_sse_server(port, original_urls)?;
         // 等待 server 就绪
-        if !bridge::wait_for_sse_server(port, Duration::from_secs(5)).await {
-            anyhow::bail!("SSE server did not become ready within 5 seconds");
+        if !bridge::wait_for_sse_server(port, Duration::from_secs(10)).await {
+            anyhow::bail!("SSE server did not become ready within 10 seconds");
         }
         tracing::info!("bridge: SSE server is ready");
     } else {
