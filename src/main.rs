@@ -51,7 +51,7 @@ fn main() -> anyhow::Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
         match cli.transport {
-            TransportType::Stdio => run_stdio(server).await,
+            TransportType::Stdio => run_stdio(server, &cli).await,
             TransportType::Sse => run_sse(server, &cli).await,
         }
     })
@@ -89,15 +89,49 @@ fn dirs_cache_dir() -> Option<PathBuf> {
         .and_then(|p| p.parent().map(|dir| dir.join("cache")))
 }
 
-/// stdio 传输
-async fn run_stdio(server: McpDocServer) -> anyhow::Result<()> {
-    tracing::info!("Starting mcpdoc-rust in stdio mode");
-    let service = server
-        .serve((tokio::io::stdin(), tokio::io::stdout()))
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to start stdio service: {e}"))?;
-    let _ = service.waiting().await;
-    Ok(())
+/// stdio 传输:优先桥接到共享 SSE server,失败则回退直接模式
+async fn run_stdio(server: McpDocServer, cli: &Cli) -> anyhow::Result<()> {
+    let port = cli.port;
+
+    // 尝试桥接到共享 SSE server
+    match try_bridge(port, &cli.urls).await {
+        Ok(()) => {
+            tracing::info!("bridge: exited normally");
+            Ok(())
+        }
+        Err(e) => {
+            tracing::warn!("bridge failed, falling back to direct stdio: {e}");
+            // 回退:直接 stdio serve McpDocServer
+            tracing::info!("Starting mcpdoc-rust in direct stdio mode");
+            let service = server
+                .serve((tokio::io::stdin(), tokio::io::stdout()))
+                .await
+                .map_err(|e| anyhow::anyhow!("failed to start stdio service: {e}"))?;
+            let _ = service.waiting().await;
+            Ok(())
+        }
+    }
+}
+
+/// 尝试桥接到 SSE server:检测→spawn→等待→连接→转发
+async fn try_bridge(port: u16, original_urls: &[String]) -> anyhow::Result<()> {
+    use mcpdoc_rust::bridge;
+
+    // 1. 检测 SSE server 是否在跑
+    if !bridge::check_sse_server(port).await {
+        tracing::info!("bridge: SSE server not running, spawning...");
+        bridge::spawn_sse_server(port, original_urls)?;
+        // 等待 server 就绪
+        if !bridge::wait_for_sse_server(port, Duration::from_secs(5)).await {
+            anyhow::bail!("SSE server did not become ready within 5 seconds");
+        }
+        tracing::info!("bridge: SSE server is ready");
+    } else {
+        tracing::info!("bridge: SSE server already running, connecting...");
+    }
+
+    // 2. 启动桥接转发
+    bridge::run_bridge(port).await
 }
 
 /// SSE 传输:用 rmcp 的 SseServer 启动 HTTP 服务器
