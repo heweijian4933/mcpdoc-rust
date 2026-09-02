@@ -91,10 +91,8 @@ fn dirs_cache_dir() -> Option<PathBuf> {
 
 /// stdio 传输:优先桥接到共享 SSE server,失败则回退直接模式
 async fn run_stdio(server: McpDocServer, cli: &Cli) -> anyhow::Result<()> {
-    let port = cli.port;
-
     // 尝试桥接到共享 SSE server
-    match try_bridge(port, &cli.urls).await {
+    match try_bridge(&cli.urls).await {
         Ok(()) => {
             tracing::info!("bridge: exited normally");
             Ok(())
@@ -113,24 +111,16 @@ async fn run_stdio(server: McpDocServer, cli: &Cli) -> anyhow::Result<()> {
     }
 }
 
-/// 尝试桥接到 SSE server:检测→spawn→等待→连接→转发
-async fn try_bridge(port: u16, original_urls: &[String]) -> anyhow::Result<()> {
+/// 尝试桥接到 SSE server:自动找端口→spawn→等待→连接→转发
+async fn try_bridge(original_urls: &[String]) -> anyhow::Result<()> {
     use mcpdoc_rust::bridge;
 
-    // 1. 检测 SSE server 是否在跑
-    if !bridge::check_sse_server(port).await {
-        tracing::info!("bridge: SSE server not running, spawning...");
-        bridge::spawn_sse_server(port, original_urls)?;
-        // 等待 server 就绪
-        if !bridge::wait_for_sse_server(port, Duration::from_secs(10)).await {
-            anyhow::bail!("SSE server did not become ready within 10 seconds");
-        }
-        tracing::info!("bridge: SSE server is ready");
-    } else {
-        tracing::info!("bridge: SSE server already running, connecting...");
-    }
+    // ensure_sse_server 读端口文件/找空闲端口/spawn/等待就绪
+    let port = bridge::ensure_sse_server(original_urls)
+        .await
+        .ok_or_else(|| anyhow::anyhow!("failed to start or connect to SSE server"))?;
 
-    // 2. 启动桥接转发
+    // 启动桥接转发
     bridge::run_bridge(port).await
 }
 
